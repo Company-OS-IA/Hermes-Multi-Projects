@@ -163,9 +163,15 @@ def _profile(event: Any = None) -> str:
     return str(getattr(source, "profile", "") or "default").lower()
 
 
+def _platform_value(value: Any) -> str:
+    """Normalize Hermes Platform enums and plain string platform names."""
+    raw = getattr(value, "value", value)
+    return str(raw or "").lower()
+
+
 def _route(event: Any) -> tuple[dict[str, Any], dict[str, Any]] | None:
     source = getattr(event, "source", None)
-    platform = str(getattr(source, "platform", "") or "").lower()
+    platform = _platform_value(getattr(source, "platform", ""))
     chat_id = str(getattr(source, "chat_id", "") or "")
     thread_id = str(getattr(source, "thread_id", "") or "")
     profile = _profile(event)

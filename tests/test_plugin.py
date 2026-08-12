@@ -16,7 +16,8 @@ def load_plugin():
     return module
 
 
-def event(text, profile="pedro", platform="telegram", chat_id="-1001", thread_id="7"):
+def event(text, profile="pedro", platform=None, chat_id="-1001", thread_id="7"):
+    if platform is None: platform = "telegram"
     return SimpleNamespace(text=text, source=SimpleNamespace(profile=profile, platform=platform, chat_id=chat_id, thread_id=thread_id))
 
 
@@ -31,6 +32,16 @@ class MultiProjectsTests(unittest.TestCase):
                 result = plugin._pre_gateway_dispatch(event("analisar campanha"))
         self.assertIn("Slug: pixel-x", result["text"])
         self.assertIn("Mensagem do usuário:\nanalisar campanha", result["text"])
+
+    def test_gateway_route_normalizes_platform_enum(self):
+        plugin = load_plugin()
+        class PlatformLike:
+            value = "telegram"
+        manifest = {"projects": [{"slug":"arquitetando-viagens", "profiles":["maya"], "routes":[{"platform":"telegram","chat_id":"-1004353172118","thread_id":"4","profile":"maya"}]}]}
+        with patch.object(plugin, "_load_manifest", return_value=manifest):
+            routed = plugin._route(event("olá", profile="maya", platform=PlatformLike(), chat_id="-1004353172118", thread_id="4"))
+        self.assertIsNotNone(routed)
+        self.assertEqual(routed[0]["slug"], "arquitetando-viagens")
 
     def test_project_init_creates_empty_manifest(self):
         plugin = load_plugin()
