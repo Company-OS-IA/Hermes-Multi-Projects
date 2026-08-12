@@ -22,20 +22,27 @@ Plugin independente para operar os mesmos perfis Hermes em múltiplos projetos, 
 
 ## Instalação
 
-Clone e instale sem tocar no core Hermes:
+Instale pelo gerenciador nativo do Hermes, sem tocar no core:
+
+Para repositório privado, use a URL SSH já autorizada no host:
 
 ```bash
-git clone https://github.com/Company-OS-IA/Hermes-Multi-Projects.git /tmp/hermes-multi-projects
-python /tmp/hermes-multi-projects/scripts/install.py
+hermes plugins install git@github.com:Company-OS-IA/Hermes-Multi-Projects.git --enable
 ```
 
-O instalador copia o pacote para:
+Para repositório público, o shorthand também funciona:
 
-```text
-$HERMES_HOME/plugins/hermes-multi-projects/
+```bash
+hermes plugins install Company-OS-IA/Hermes-Multi-Projects --enable
 ```
 
-Depois habilite o plugin em `plugins.enabled` e configure a entrada abaixo. Use seu fluxo de configuração Hermes; não altere arquivos do core.
+Para atualizar depois:
+
+```bash
+hermes plugins update hermes-multi-projects
+```
+
+O plugin é instalado em `$HERMES_HOME/plugins/hermes-multi-projects/`.
 
 ```yaml
 plugins:
@@ -49,7 +56,7 @@ plugins:
       admin_profiles: [default]
 ```
 
-`admin_profiles` controla quem pode executar `/project init` e `/project create`. Por padrão, somente `default` (agente principal) pode provisionar projetos.
+`admin_profiles` controla quem pode executar `/project init` e `/project create`. Aceita um perfil único (`default`) ou uma lista (`[default, coo]`); por padrão, somente `default` (agente principal) pode provisionar projetos.
 
 Reinicie o gateway após habilitar ou atualizar o plugin.
 

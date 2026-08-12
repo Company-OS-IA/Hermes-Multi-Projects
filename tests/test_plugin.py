@@ -55,6 +55,11 @@ class MultiProjectsTests(unittest.TestCase):
             self.assertEqual(manifest["projects"][0]["slug"], "pixel-x")
             self.assertTrue(exists)
 
+    def test_string_admin_profile_is_supported(self):
+        plugin = load_plugin()
+        with patch.object(plugin, "_cfg", return_value={"admin_profiles":"default"}):
+            self.assertTrue(plugin._admin("default"))
+
     def test_non_admin_cannot_create_project(self):
         plugin = load_plugin()
         with patch.object(plugin, "_cfg", return_value={"admin_profiles":["default"]}):

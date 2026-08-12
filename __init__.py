@@ -47,7 +47,9 @@ def _write_manifest(data: dict[str, Any]) -> None:
 
 
 def _admin(profile: str) -> bool:
-    allowed = [str(p).lower() for p in _cfg().get("admin_profiles", ["default"])]
+    raw = _cfg().get("admin_profiles", ["default"])
+    values = [raw] if isinstance(raw, str) else raw
+    allowed = [str(p).lower() for p in values if str(p).strip()]
     return profile.lower() in allowed
 
 
