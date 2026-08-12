@@ -1,0 +1,8 @@
+# Byte-compiled / test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local runtime state
+.hermes-project-context.json
+projects.yaml
