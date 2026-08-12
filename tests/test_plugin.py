@@ -55,6 +55,17 @@ class MultiProjectsTests(unittest.TestCase):
             self.assertEqual(manifest["projects"][0]["slug"], "pixel-x")
             self.assertTrue(exists)
 
+    def test_main_can_create_from_human_name(self):
+        plugin = load_plugin()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.object(plugin, "_cfg", return_value={"workspace_root":str(root), "admin_profiles":["default"]}):
+                plugin._project_init("default")
+                result = plugin._project_create("Arquitetando Viagens", "default")
+                manifest = plugin._load_manifest()
+            self.assertIn("arquitetando-viagens", result)
+            self.assertEqual(manifest["projects"][0]["slug"], "arquitetando-viagens")
+
     def test_string_admin_profile_is_supported(self):
         plugin = load_plugin()
         with patch.object(plugin, "_cfg", return_value={"admin_profiles":"default"}):

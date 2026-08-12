@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -69,13 +70,20 @@ def _project_init(profile: str) -> str:
     return f"Project OS inicializada em `{path.parent}`. Use `/project create <slug> | <nome>` para criar o primeiro projeto."
 
 
+def _slugify(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii").lower()
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", normalized)).strip("-")[:63]
+
+
 def _project_create(raw: str, profile: str) -> str:
     if not _admin(profile): return "Perfil não autorizado a criar projetos."
     if not _manifest_path().is_file(): return "Project OS não inicializada. Use `/project init` primeiro."
     parts = [p.strip() for p in raw.split("|", 1)]
-    slug = parts[0].lower()
-    if not _SLUG.fullmatch(slug): return "Uso: `/project create <slug> | <nome>`. O slug usa lowercase, números e hífens."
-    name = parts[1] if len(parts) == 2 and parts[1] else slug.replace("-", " ").title()
+    candidate = parts[0]
+    explicit_slug = _SLUG.fullmatch(candidate.lower()) is not None
+    slug = candidate.lower() if explicit_slug else _slugify(candidate)
+    if not _SLUG.fullmatch(slug): return "Uso: `/project create <slug> | <nome>` ou `/project create <nome>`."
+    name = parts[1] if len(parts) == 2 and parts[1] else (slug.replace("-", " ").title() if explicit_slug else candidate)
     data = _load_manifest()
     if _project(slug) is not None: return f"Projeto `{slug}` já está cadastrado."
     dest = _project_root(slug)

@@ -82,6 +82,7 @@ Não cria nenhum projeto ainda.
 
 ```text
 /project create pixel-x | Pixel X
+/project create Pixel X
 ```
 
 Ou, se o nome for omitido, o slug vira um título legível:
