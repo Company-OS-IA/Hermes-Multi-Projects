@@ -8,10 +8,10 @@ Plugin independente para operar os mesmos perfis Hermes em múltiplos projetos, 
 - injeta contexto do projeto antes de cada chamada ao modelo;
 - usa `projects/<slug>/AGENTS.md`, `PROJECT.md` e `CONTEXT.md` como fontes canônicas;
 - bloqueia rotas de canal não provisionadas quando configurado em modo fechado;
-- permite selecionar `company` ou um projeto fora de canais, por perfil/superfície;
+- permite selecionar `company` ou um projeto fora de canais, por perfil;
 - expõe uma tool para o agente consultar o contexto ativo.
 
-> Limite explícito da V1: o Hermes atual não passa o `session_id` ao handler de comandos de plugin. Em CLI/TUI, a seleção manual é persistida por perfil + superfície, não por sessão individual. Canais roteados têm escopo determinístico por mensagem.
+> Limite explícito da V1: o Hermes atual não passa o `session_id` ao handler de comandos de plugin. Em CLI/TUI, a seleção manual é persistida por perfil, não por sessão individual. Canais roteados têm escopo determinístico por mensagem.
 
 ## Instalação
 

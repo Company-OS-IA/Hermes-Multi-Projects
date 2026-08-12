@@ -63,7 +63,7 @@ def _route(event: Any) -> tuple[dict[str, Any], dict[str, Any]] | None:
         for route in project.get("routes", []) or []:
             if not isinstance(route, dict):
                 continue
-            if (str(route.get("platform", "")).lower() == platform and str(route.get("chat_id", "")) == chat_id and str(route.get("thread_id", "")) == thread_id and str(route.get("profile", "")).lower() == profile):
+            if (str(route.get("platform", "")).lower() == platform and str(route.get("chat_id", "")) == chat_id and str(route.get("thread_id", "")) == thread_id and str(route.get("profile", "")).lower() == profile and _allowed(project, profile)):
                 return project, route
     return None
 
@@ -139,7 +139,6 @@ def _pre_llm_call(session_id: str = "", **kwargs: Any) -> dict[str, str] | None:
 
 def _pre_gateway_dispatch(event: Any, **_: Any) -> dict[str, str] | None:
     text = str(getattr(event, "text", "") or "").strip()
-    if text.startswith("/project_"): text = "/project-" + text[len("/project_"):]
     match = _COMMAND.fullmatch(text)
     profile = _profile(event)
     routed = _route(event)

@@ -32,6 +32,12 @@ class MultiProjectsTests(unittest.TestCase):
         self.assertIn("Slug: pixel-x", result["text"])
         self.assertIn("Mensagem do usuário:\nanalisar campanha", result["text"])
 
+    def test_route_rejects_profile_not_authorized_by_project(self):
+        plugin = load_plugin()
+        manifest = {"projects": [{"slug":"pixel-x", "profiles":["david"], "routes":[{"platform":"telegram","chat_id":"-1001","thread_id":"7","profile":"pedro"}]}]}
+        with patch.object(plugin, "_load_manifest", return_value=manifest):
+            self.assertIsNone(plugin._route(event("hello", profile="pedro")))
+
     def test_routed_channel_cannot_switch_project(self):
         plugin = load_plugin()
         manifest = {"projects": [{"slug":"pixel-x", "profiles":["pedro"], "routes":[{"platform":"telegram","chat_id":"-1001","thread_id":"7","profile":"pedro"}]}]}
