@@ -1,6 +1,7 @@
 """Hermes Multi-Projects — portable project-context plugin."""
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
@@ -13,6 +14,8 @@ import yaml
 _PLUGIN_KEY = "hermes-multi-projects"
 _COMMAND = re.compile(r"^/(project|projects)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?$", re.DOTALL)
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+_COMMAND_PROFILE: contextvars.ContextVar[str] = contextvars.ContextVar("multi_projects_command_profile", default="default")
+_COMMAND_ROUTE: contextvars.ContextVar[tuple[dict[str, Any], dict[str, Any]] | None] = contextvars.ContextVar("multi_projects_command_route", default=None)
 
 
 def _cfg() -> dict[str, Any]:
@@ -246,35 +249,20 @@ def _pre_llm_call(session_id: str = "", **kwargs: Any) -> dict[str, str] | None:
 
 def _pre_gateway_dispatch(event: Any, **_: Any) -> dict[str, str] | None:
     text = str(getattr(event, "text", "") or "").strip()
-    match = _COMMAND.fullmatch(text)
-    if not match and text.startswith("/"):
-        return None
+    # Every slash command must reach Hermes' native command dispatcher. It owns
+    # direct gateway replies; rewriting here only feeds a synthetic prompt to
+    # the LLM and does not reliably send a response to Telegram.
     profile = _profile(event)
     routed = _route(event)
-    if match:
-        cmd, raw = match.group(1), (match.group(2) or "").strip()
-        if cmd == "projects":
-            names = [f"- `{p['slug']}` — {p.get('name', p['slug'])}" for p in _projects() if _allowed(p, profile)]
-            return {"action":"rewrite", "text":"Projetos disponíveis:\n" + ("\n".join(names) or "Nenhum.") + "\n\nUse `/project use <slug>`."}
-        if not raw: return {"action":"rewrite", "text":_context(routed[0] if routed else _selected(profile), profile, "rota" if routed else "manual")}
-        parts = raw.split(maxsplit=1)
-        action = parts[0].lower()
-        if routed and action in {"init", "create", "add"}: return {"action":"rewrite", "text":"Este canal é roteado para projeto; inicialização, criação e alteração só podem ser feitas fora de canais de projeto."}
-        if action == "init" and len(parts) == 1: return {"action":"rewrite", "text":_project_init(profile)}
-        if action == "create" and len(parts) == 2: return {"action":"rewrite", "text":_project_create(parts[1], profile)}
-        if action == "add" and len(parts) == 2:
-            kind, _, args = parts[1].partition(" ")
-            if kind.lower() == "profile": return {"action":"rewrite", "text":_project_add_profile(args, profile)}
-            if kind.lower() == "route": return {"action":"rewrite", "text":_project_add_route(args, profile)}
-            return {"action":"rewrite", "text":"Uso: `/project add profile <slug> <perfil>` ou `/project add route <slug> <plataforma> <chat_id> <thread_id|-> <perfil>`."}
-        if action != "use" or len(parts) != 2: return {"action":"rewrite", "text":"Uso: `/project`, `/projects`, `/project init`, `/project create <slug> | <nome>`, `/project add profile ...`, `/project add route ...` ou `/project use <slug|company>`."}
-        if routed: return {"action":"rewrite", "text":f"Este canal é roteado para `{routed[0]['slug']}`; a seleção manual está bloqueada."}
-        slug = parts[1].strip().lower()
-        if slug == "company": _set_selection(profile, "company"); return {"action":"rewrite", "text":"Contexto selecionado: company."}
-        project = _project(slug)
-        if not project or not _allowed(project, profile): return {"action":"rewrite", "text":f"Projeto `{slug}` não existe ou não está habilitado para `{profile}`."}
-        _set_selection(profile, slug); return {"action":"rewrite", "text":_context(project, profile, "manual")}
-    if routed: return {"action":"rewrite", "text":_context(routed[0], profile, "rota") + "\n\nMensagem do usuário:\n" + text}
+    if text.startswith("/"):
+        # Gateway dispatch calls the registered handler synchronously after this
+        # hook. Preserve this event's identity so the response is both sent
+        # natively and authorized against the profile/route that invoked it.
+        _COMMAND_PROFILE.set(profile)
+        _COMMAND_ROUTE.set(routed)
+        return None
+    if routed:
+        return {"action":"rewrite", "text":_context(routed[0], profile, "rota") + "\n\nMensagem do usuário:\n" + text}
     return {"action":"rewrite", "text":_context(None, profile, "company") + "\n\nMensagem do usuário:\n" + text}
 
 
@@ -283,14 +271,42 @@ def project_context(_: dict[str, Any], **kwargs: Any) -> str:
     return json.dumps({"success": True, "profile": profile, "project": (_selected(profile) or {}).get("slug", "company"), "context": _context(_selected(profile), profile, "tool")})
 
 
+def _command_profile() -> str:
+    return _COMMAND_PROFILE.get() or _active_profile()
+
+
+def _command_route() -> tuple[dict[str, Any], dict[str, Any]] | None:
+    return _COMMAND_ROUTE.get()
+
+
 def _cli_project(raw: str) -> str:
-    class E:
-        source = None
-    event = E(); event.text = "/project " + raw if raw else "/project"
-    return (_pre_gateway_dispatch(event) or {}).get("text", "")
+    profile, routed = _command_profile(), _command_route()
+    if not raw:
+        return _context(routed[0] if routed else _selected(profile), profile, "rota" if routed else "manual")
+    parts = raw.split(maxsplit=1); action = parts[0].lower()
+    if routed and action in {"init", "create", "add"}:
+        return "Este canal é roteado para projeto; inicialização, criação e alteração só podem ser feitas fora de canais de projeto."
+    if action == "init" and len(parts) == 1: return _project_init(profile)
+    if action == "create" and len(parts) == 2: return _project_create(parts[1], profile)
+    if action == "add" and len(parts) == 2:
+        kind, _, args = parts[1].partition(" ")
+        if kind.lower() == "profile": return _project_add_profile(args, profile)
+        if kind.lower() == "route": return _project_add_route(args, profile)
+        return "Uso: `/project add profile <slug> <perfil>` ou `/project add route <slug> <plataforma> <chat_id> <thread_id|-> <perfil>`."
+    if action != "use" or len(parts) != 2:
+        return "Uso: `/project`, `/projects`, `/project init`, `/project create <slug> | <nome>`, `/project add profile ...`, `/project add route ...` ou `/project use <slug|company>`."
+    if routed: return f"Este canal é roteado para `{routed[0]['slug']}`; a seleção manual está bloqueada."
+    slug = parts[1].strip().lower()
+    if slug == "company":
+        _set_selection(profile, "company"); return "Contexto selecionado: company."
+    project = _project(slug)
+    if not project or not _allowed(project, profile): return f"Projeto `{slug}` não existe ou não está habilitado para `{profile}`."
+    _set_selection(profile, slug); return _context(project, profile, "manual")
+
 
 def _cli_projects(_: str) -> str:
-    names = [f"- `{p['slug']}` — {p.get('name', p['slug'])}" for p in _projects() if _allowed(p, "default")]
+    profile = _command_profile()
+    names = [f"- `{p['slug']}` — {p.get('name', p['slug'])}" for p in _projects() if _allowed(p, profile)]
     return "Projetos disponíveis:\n" + ("\n".join(names) or "Nenhum.") + "\n\nUse `/project use <slug>`."
 
 def register(ctx: Any) -> None:

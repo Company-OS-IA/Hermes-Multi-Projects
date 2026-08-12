@@ -121,8 +121,9 @@ class MultiProjectsTests(unittest.TestCase):
         plugin = load_plugin()
         manifest = {"projects": [{"slug":"pixel-x", "profiles":["pedro"], "routes":[{"platform":"telegram","chat_id":"-1001","thread_id":"7","profile":"pedro"}]}]}
         with patch.object(plugin, "_load_manifest", return_value=manifest):
-            result = plugin._pre_gateway_dispatch(event("/project use other"))
-        self.assertIn("seleção manual está bloqueada", result["text"])
+            self.assertIsNone(plugin._pre_gateway_dispatch(event("/project use other")))
+            result = plugin._cli_project("use other")
+        self.assertIn("seleção manual está bloqueada", result)
 
     def test_manual_selection_persists_per_profile_and_pre_llm_injects_it(self):
         plugin = load_plugin()
@@ -131,10 +132,11 @@ class MultiProjectsTests(unittest.TestCase):
             root = Path(temp); project = root / "projects/pixel-x"; project.mkdir(parents=True)
             for name in ("PROJECT.md", "CONTEXT.md", "AGENTS.md"): (project / name).write_text("ok")
             with patch.object(plugin, "_cfg", return_value={"workspace_root":str(root)}), patch.object(plugin, "_load_manifest", return_value=manifest):
-                result = plugin._pre_gateway_dispatch(event("/project use pixel-x", platform=""))
+                plugin._pre_gateway_dispatch(event("/project use pixel-x", platform=""))
+                result = plugin._cli_project("use pixel-x")
                 with patch.object(plugin, "_active_profile", return_value="pedro"):
                     injected = plugin._pre_llm_call(session_id="x")
-        self.assertIn("Slug: pixel-x", result["text"])
+        self.assertIn("Slug: pixel-x", result)
         self.assertIn("Slug: pixel-x", injected["context"])
 
     def test_invalid_manifest_slug_cannot_escape_projects_root(self):
@@ -156,6 +158,22 @@ class MultiProjectsTests(unittest.TestCase):
             result = plugin._pre_gateway_dispatch(event("hello", chat_id="-999"))
         self.assertIn("Escopo: company", result["text"])
         self.assertIn("Mensagem do usuário:\nhello", result["text"])
+
+    def test_gateway_project_commands_pass_through_to_native_dispatch(self):
+        plugin = load_plugin()
+        manifest = {"projects": [{"slug":"pixel-x-app", "name":"Pixel X App", "profiles":["default"]}]}
+        with patch.object(plugin, "_load_manifest", return_value=manifest):
+            self.assertIsNone(plugin._pre_gateway_dispatch(event("/projects", profile="default", chat_id="-999")))
+            response = plugin._cli_projects("")
+        self.assertIn("pixel-x-app", response)
+
+    def test_gateway_project_handler_preserves_profile_for_authorization(self):
+        plugin = load_plugin()
+        manifest = {"projects": [{"slug":"private", "profiles":["pedro"]}]}
+        with patch.object(plugin, "_load_manifest", return_value=manifest):
+            plugin._pre_gateway_dispatch(event("/projects", profile="david", chat_id="-999"))
+            response = plugin._cli_projects("")
+        self.assertNotIn("private", response)
 
     def test_native_gateway_command_passes_through(self):
         plugin = load_plugin()
