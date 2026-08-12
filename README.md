@@ -7,8 +7,7 @@ Plugin independente para operar os mesmos perfis Hermes em múltiplos projetos, 
 - mapeia origem de canal para `profile + project_slug`;
 - injeta contexto de projeto em mensagens de canais roteados e em superfícies locais com projeto selecionado;
 - usa `projects/<slug>/AGENTS.md`, `PROJECT.md` e `CONTEXT.md` como fontes canônicas;
-- bloqueia canais não provisionados quando configurado em modo fechado;
-- permite selecionar `company` ou um projeto fora de canais, por perfil;
+- canais sem rota ficam em escopo `company`, sem acesso implícito a dados de projeto;
 - provisiona e cadastra projetos pelo comando `/project create`;
 - expõe a tool `project_context` para o agente consultar o contexto ativo.
 
@@ -52,7 +51,6 @@ plugins:
     hermes-multi-projects:
       workspace_root: /root/hermes-workspace
       manifest: /root/hermes-workspace/projects.yaml
-      fail_closed_gateway: true
       admin_profiles: [default]
 ```
 
@@ -185,8 +183,8 @@ Para sair do projeto:
 - O plugin oferece isolamento de contexto e validação de rotas; não é sandbox de sistema operacional.
 - Ele não cria, copia nem gere credenciais.
 - Contexto de projeto não deve ser promovido à memória global do agente sem decisão explícita.
+- Canais sem rota operam somente no escopo `company`; dados de projeto só entram por rota válida ou seleção manual autorizada.
 - Fontes externas e informações temporais precisam ser revalidadas.
-- `fail_closed_gateway: true` impede que canais sem rota recebam operações de projeto.
 
 ## Desenvolvimento
 

@@ -205,6 +205,8 @@ def _pre_llm_call(session_id: str = "", **kwargs: Any) -> dict[str, str] | None:
 def _pre_gateway_dispatch(event: Any, **_: Any) -> dict[str, str] | None:
     text = str(getattr(event, "text", "") or "").strip()
     match = _COMMAND.fullmatch(text)
+    if not match and text.startswith("/"):
+        return None
     profile = _profile(event)
     routed = _route(event)
     if match:
@@ -226,9 +228,7 @@ def _pre_gateway_dispatch(event: Any, **_: Any) -> dict[str, str] | None:
         if not project or not _allowed(project, profile): return {"action":"rewrite", "text":f"Projeto `{slug}` não existe ou não está habilitado para `{profile}`."}
         _set_selection(profile, slug); return {"action":"rewrite", "text":_context(project, profile, "manual")}
     if routed: return {"action":"rewrite", "text":_context(routed[0], profile, "rota") + "\n\nMensagem do usuário:\n" + text}
-    if _cfg().get("fail_closed_gateway", False) and str(getattr(getattr(event,"source",None),"platform","") or ""):
-        return {"action":"rewrite", "text":"Este canal não está provisionado para um projeto. Nenhuma operação de projeto será executada."}
-    return None
+    return {"action":"rewrite", "text":_context(None, profile, "company") + "\n\nMensagem do usuário:\n" + text}
 
 
 def project_context(_: dict[str, Any], **kwargs: Any) -> str:

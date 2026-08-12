@@ -115,11 +115,17 @@ class MultiProjectsTests(unittest.TestCase):
         plugin = load_plugin()
         self.assertIsNone(plugin._pre_llm_call(session_id="x", platform="telegram"))
 
-    def test_unknown_gateway_is_closed_when_enabled(self):
+    def test_unrouted_gateway_uses_company_context(self):
         plugin = load_plugin()
-        with patch.object(plugin, "_cfg", return_value={"fail_closed_gateway":True}), patch.object(plugin, "_load_manifest", return_value={"projects":[]}):
+        with patch.object(plugin, "_load_manifest", return_value={"projects":[]}):
             result = plugin._pre_gateway_dispatch(event("hello", chat_id="-999"))
-        self.assertIn("não está provisionado", result["text"])
+        self.assertIn("Escopo: company", result["text"])
+        self.assertIn("Mensagem do usuário:\nhello", result["text"])
+
+    def test_native_gateway_command_passes_through(self):
+        plugin = load_plugin()
+        with patch.object(plugin, "_load_manifest", return_value={"projects":[]}):
+            self.assertIsNone(plugin._pre_gateway_dispatch(event("/restart", chat_id="-999")))
 
 
 if __name__ == "__main__": unittest.main()
