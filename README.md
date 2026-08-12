@@ -113,20 +113,12 @@ O projeto entra no manifesto inicialmente sem perfis nem rotas. Isto é intencio
 
 ### 3. Autorize agentes e configure rotas
 
-Edite o manifesto com os perfis e as rotas reais da sua instalação, depois valide:
+```text
+/project add profile pixel-x-app pedro
+/project add profile pixel-x-app david
 
-```yaml
-version: 1
-projects:
-  - slug: pixel-x
-    name: Pixel X
-    enabled: true
-    profiles: [david, maya, pedro]
-    routes:
-      - platform: telegram
-        chat_id: "-1000000000001"
-        thread_id: "7"
-        profile: pedro
+/project add route pixel-x-app telegram -1000000000001 7 pedro
+/project add route pixel-x-app telegram -1000000000001 - david
 ```
 
 ```bash
@@ -135,7 +127,7 @@ python "$HERMES_HOME/plugins/hermes-multi-projects/scripts/project_os.py" valida
   --manifest /root/hermes-workspace/projects.yaml
 ```
 
-Uma rota é válida somente se seu `profile` também estiver em `profiles`. Slugs e rotas duplicados são rejeitados.
+Uma rota é válida somente se seu `profile` também estiver em `profiles`. `/project add route` exige essa autorização, rejeita rotas duplicadas e usa `-` quando o canal não possui `thread_id`. Slugs e rotas duplicados são rejeitados.
 
 ### 4. Reinicie e valide no canal
 
@@ -152,6 +144,9 @@ plataforma + chat_id + thread_id + perfil → projeto
 /projects                                   lista projetos autorizados ao perfil
 /project init                               cria manifesto global vazio (admin)
 /project create <slug> | <nome>             cria diretório e cadastra projeto (admin)
+/project add profile <slug> <perfil>         autoriza perfil no projeto (admin)
+/project add route <slug> <plataforma> <chat_id> <thread_id|-> <perfil>
+                                             cadastra rota estável (admin)
 /project use <slug>                         seleciona projeto fora de canal roteado
 /project use company                        volta ao escopo organizacional
 ```

@@ -55,6 +55,41 @@ class MultiProjectsTests(unittest.TestCase):
             self.assertEqual(manifest["projects"][0]["slug"], "pixel-x")
             self.assertTrue(exists)
 
+    def test_admin_can_add_profile_to_project(self):
+        plugin = load_plugin()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.object(plugin, "_cfg", return_value={"workspace_root":str(root), "admin_profiles":["default"]}):
+                plugin._project_init("default")
+                plugin._project_create("pixel-x", "default")
+                result = plugin._project_add_profile("pixel-x pedro", "default")
+                manifest = plugin._load_manifest()
+            self.assertIn("pedro", result)
+            self.assertEqual(manifest["projects"][0]["profiles"], ["pedro"])
+
+    def test_admin_can_add_route_to_authorized_profile(self):
+        plugin = load_plugin()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.object(plugin, "_cfg", return_value={"workspace_root":str(root), "admin_profiles":["default"]}):
+                plugin._project_init("default")
+                plugin._project_create("pixel-x", "default")
+                plugin._project_add_profile("pixel-x pedro", "default")
+                result = plugin._project_add_route("pixel-x telegram -1001 7 pedro", "default")
+                manifest = plugin._load_manifest()
+            self.assertIn("Rota adicionada", result)
+            self.assertEqual(manifest["projects"][0]["routes"][0]["chat_id"], "-1001")
+
+    def test_route_requires_authorized_profile(self):
+        plugin = load_plugin()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.object(plugin, "_cfg", return_value={"workspace_root":str(root), "admin_profiles":["default"]}):
+                plugin._project_init("default")
+                plugin._project_create("pixel-x", "default")
+                result = plugin._project_add_route("pixel-x telegram -1001 7 pedro", "default")
+            self.assertIn("não autorizado", result)
+
     def test_main_can_create_from_human_name(self):
         plugin = load_plugin()
         with tempfile.TemporaryDirectory() as temp:

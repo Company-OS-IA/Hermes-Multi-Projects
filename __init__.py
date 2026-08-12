@@ -101,7 +101,49 @@ def _project_create(raw: str, profile: str) -> str:
         if dest.exists():
             import shutil; shutil.rmtree(dest)
         return f"Falha ao criar projeto: {exc}"
-    return f"Projeto `{slug}` criado e cadastrado. Próximo passo: defina `profiles` e `routes` em `{_manifest_path()}`; depois rode `project_os.py validate`."
+    return f"Projeto `{slug}` criado e cadastrado. Próximo passo: use `/project add profile {slug} <perfil>` e `/project add route {slug} <plataforma> <chat_id> <thread_id|-> <perfil>`."
+
+
+def _project_add_profile(raw: str, actor: str) -> str:
+    if not _admin(actor): return "Perfil não autorizado a alterar projetos."
+    parts = raw.split()
+    if len(parts) != 2: return "Uso: `/project add profile <slug> <perfil>`."
+    slug, profile = parts[0].lower(), parts[1].lower()
+    if not _SLUG.fullmatch(slug) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,62}", profile): return "Slug ou perfil inválido."
+    data = _load_manifest(); project = next((p for p in data["projects"] if isinstance(p, dict) and str(p.get("slug", "")).lower() == slug), None)
+    if not project: return f"Projeto `{slug}` não existe."
+    profiles = project.setdefault("profiles", [])
+    if not isinstance(profiles, list): return f"Projeto `{slug}` tem `profiles` inválido."
+    if profile in [str(p).lower() for p in profiles]: return f"Perfil `{profile}` já está autorizado em `{slug}`."
+    profiles.append(profile); _write_manifest(data)
+    return f"Perfil `{profile}` autorizado no projeto `{slug}`."
+
+
+def _project_add_route(raw: str, actor: str) -> str:
+    if not _admin(actor): return "Perfil não autorizado a alterar projetos."
+    parts = raw.split()
+    if len(parts) != 5: return "Uso: `/project add route <slug> <plataforma> <chat_id> <thread_id|-> <perfil>`."
+    slug, platform, chat_id, thread_id, profile = parts
+    slug, platform, profile = slug.lower(), platform.lower(), profile.lower()
+    if not _SLUG.fullmatch(slug) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,62}", profile): return "Slug ou perfil inválido."
+    if not re.fullmatch(r"[a-z0-9_-]{1,32}", platform) or not chat_id or any(c.isspace() for c in chat_id): return "Plataforma ou chat_id inválido."
+    thread_id = "" if thread_id == "-" else thread_id
+    if thread_id and any(c.isspace() for c in thread_id): return "thread_id inválido."
+    data = _load_manifest(); project = next((p for p in data["projects"] if isinstance(p, dict) and str(p.get("slug", "")).lower() == slug), None)
+    if not project: return f"Projeto `{slug}` não existe."
+    if profile not in [str(p).lower() for p in project.get("profiles", []) or []]: return f"Perfil `{profile}` não autorizado no projeto `{slug}`. Use `/project add profile {slug} {profile}` primeiro."
+    key = (platform, chat_id, thread_id, profile)
+    for candidate in _projects():
+        for route in candidate.get("routes", []) or []:
+            if not isinstance(route, dict): continue
+            other = (str(route.get("platform", "")).lower(), str(route.get("chat_id", "")), str(route.get("thread_id", "")), str(route.get("profile", "")).lower())
+            if other == key:
+                return f"Esta rota já existe no projeto `{candidate.get('slug')}`."
+    routes = project.setdefault("routes", [])
+    if not isinstance(routes, list): return f"Projeto `{slug}` tem `routes` inválido."
+    routes.append({"platform": platform, "chat_id": chat_id, "thread_id": thread_id, "profile": profile})
+    _write_manifest(data)
+    return f"Rota adicionada ao projeto `{slug}`: `{platform}` / `{chat_id}` / `{thread_id or '- '}` → `{profile}`. Reinicie o gateway para aplicar."
 
 
 def _projects() -> list[dict[str, Any]]:
@@ -217,10 +259,15 @@ def _pre_gateway_dispatch(event: Any, **_: Any) -> dict[str, str] | None:
         if not raw: return {"action":"rewrite", "text":_context(routed[0] if routed else _selected(profile), profile, "rota" if routed else "manual")}
         parts = raw.split(maxsplit=1)
         action = parts[0].lower()
-        if routed and action in {"init", "create"}: return {"action":"rewrite", "text":"Este canal é roteado para projeto; inicialização e criação só podem ser feitas fora de canais de projeto."}
+        if routed and action in {"init", "create", "add"}: return {"action":"rewrite", "text":"Este canal é roteado para projeto; inicialização, criação e alteração só podem ser feitas fora de canais de projeto."}
         if action == "init" and len(parts) == 1: return {"action":"rewrite", "text":_project_init(profile)}
         if action == "create" and len(parts) == 2: return {"action":"rewrite", "text":_project_create(parts[1], profile)}
-        if action != "use" or len(parts) != 2: return {"action":"rewrite", "text":"Uso: `/project`, `/projects`, `/project init`, `/project create <slug> | <nome>` ou `/project use <slug|company>`."}
+        if action == "add" and len(parts) == 2:
+            kind, _, args = parts[1].partition(" ")
+            if kind.lower() == "profile": return {"action":"rewrite", "text":_project_add_profile(args, profile)}
+            if kind.lower() == "route": return {"action":"rewrite", "text":_project_add_route(args, profile)}
+            return {"action":"rewrite", "text":"Uso: `/project add profile <slug> <perfil>` ou `/project add route <slug> <plataforma> <chat_id> <thread_id|-> <perfil>`."}
+        if action != "use" or len(parts) != 2: return {"action":"rewrite", "text":"Uso: `/project`, `/projects`, `/project init`, `/project create <slug> | <nome>`, `/project add profile ...`, `/project add route ...` ou `/project use <slug|company>`."}
         if routed: return {"action":"rewrite", "text":f"Este canal é roteado para `{routed[0]['slug']}`; a seleção manual está bloqueada."}
         slug = parts[1].strip().lower()
         if slug == "company": _set_selection(profile, "company"); return {"action":"rewrite", "text":"Contexto selecionado: company."}
