@@ -32,6 +32,34 @@ class MultiProjectsTests(unittest.TestCase):
         self.assertIn("Slug: pixel-x", result["text"])
         self.assertIn("Mensagem do usuário:\nanalisar campanha", result["text"])
 
+    def test_project_init_creates_empty_manifest(self):
+        plugin = load_plugin()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.object(plugin, "_cfg", return_value={"workspace_root":str(root)}):
+                result = plugin._project_init("default")
+                manifest = plugin._load_manifest()
+            self.assertIn("inicializada", result)
+            self.assertEqual(manifest, {"version": 1, "projects": []})
+
+    def test_main_can_create_and_register_project(self):
+        plugin = load_plugin()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.object(plugin, "_cfg", return_value={"workspace_root":str(root), "admin_profiles":["default"]}):
+                plugin._project_init("default")
+                result = plugin._project_create("pixel-x | Pixel X", "default")
+                manifest = plugin._load_manifest()
+                exists = (root / "projects/pixel-x/PROJECT.md").is_file()
+            self.assertIn("pixel-x", result)
+            self.assertEqual(manifest["projects"][0]["slug"], "pixel-x")
+            self.assertTrue(exists)
+
+    def test_non_admin_cannot_create_project(self):
+        plugin = load_plugin()
+        with patch.object(plugin, "_cfg", return_value={"admin_profiles":["default"]}):
+            self.assertIn("não autorizado", plugin._project_create("pixel-x", "pedro"))
+
     def test_route_rejects_profile_not_authorized_by_project(self):
         plugin = load_plugin()
         manifest = {"projects": [{"slug":"pixel-x", "profiles":["david"], "routes":[{"platform":"telegram","chat_id":"-1001","thread_id":"7","profile":"pedro"}]}]}

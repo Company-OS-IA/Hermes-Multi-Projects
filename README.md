@@ -4,36 +4,110 @@ Plugin independente para operar os mesmos perfis Hermes em múltiplos projetos, 
 
 ## O que resolve
 
-- mapeia uma origem de canal para `profile + project_slug`;
-- injeta contexto do projeto antes de cada chamada ao modelo;
+- mapeia origem de canal para `profile + project_slug`;
+- injeta contexto de projeto em mensagens de canais roteados e em superfícies locais com projeto selecionado;
 - usa `projects/<slug>/AGENTS.md`, `PROJECT.md` e `CONTEXT.md` como fontes canônicas;
-- bloqueia rotas de canal não provisionadas quando configurado em modo fechado;
+- bloqueia canais não provisionados quando configurado em modo fechado;
 - permite selecionar `company` ou um projeto fora de canais, por perfil;
-- expõe uma tool para o agente consultar o contexto ativo.
+- provisiona e cadastra projetos pelo comando `/project create`;
+- expõe a tool `project_context` para o agente consultar o contexto ativo.
 
-> Limite explícito da V1: o Hermes atual não passa o `session_id` ao handler de comandos de plugin. Em CLI/TUI, a seleção manual é persistida por perfil, não por sessão individual. Canais roteados têm escopo determinístico por mensagem.
+> **Limite V1:** o Hermes atual não passa `session_id` ao handler de slash command de plugin. Em CLI/TUI, a seleção manual é persistida por **perfil**, não por sessão individual. Canais roteados têm escopo determinístico por mensagem.
+
+## Pré-requisitos
+
+- Hermes Agent com suporte a plugins;
+- Python 3.10+ e PyYAML (dependência padrão do Hermes);
+- um workspace gravável, por exemplo `/srv/company-os` ou `/root/hermes-workspace`.
 
 ## Instalação
+
+Clone e instale sem tocar no core Hermes:
 
 ```bash
 git clone https://github.com/Company-OS-IA/Hermes-Multi-Projects.git /tmp/hermes-multi-projects
 python /tmp/hermes-multi-projects/scripts/install.py
 ```
 
-Adicione `hermes-multi-projects` à lista `plugins.enabled` na configuração Hermes e reinicie o gateway. O instalador não toca em arquivos do core.
+O instalador copia o pacote para:
 
-Use `scripts/project_os.py init` para criar um projeto e `scripts/project_os.py validate` para validar manifestos. Configure o caminho do workspace e o manifesto em `config.yaml`:
+```text
+$HERMES_HOME/plugins/hermes-multi-projects/
+```
+
+Depois habilite o plugin em `plugins.enabled` e configure a entrada abaixo. Use seu fluxo de configuração Hermes; não altere arquivos do core.
 
 ```yaml
 plugins:
+  enabled:
+    - hermes-multi-projects
   entries:
     hermes-multi-projects:
-      workspace_root: /srv/company-os
-      manifest: /srv/company-os/projects.yaml
+      workspace_root: /root/hermes-workspace
+      manifest: /root/hermes-workspace/projects.yaml
       fail_closed_gateway: true
+      admin_profiles: [default]
 ```
 
-## Manifesto
+`admin_profiles` controla quem pode executar `/project init` e `/project create`. Por padrão, somente `default` (agente principal) pode provisionar projetos.
+
+Reinicie o gateway após habilitar ou atualizar o plugin.
+
+## Começo rápido
+
+### 1. Inicialize o Project OS uma vez
+
+No chat do agente principal, fora de um canal já roteado para projeto:
+
+```text
+/project init
+```
+
+Isso cria apenas o manifesto vazio:
+
+```text
+/root/hermes-workspace/projects.yaml
+```
+
+Não cria nenhum projeto ainda.
+
+### 2. Crie o primeiro projeto
+
+```text
+/project create pixel-x | Pixel X
+```
+
+Ou, se o nome for omitido, o slug vira um título legível:
+
+```text
+/project create arquitetando-viagens
+```
+
+O comando cria e cadastra, de forma única, esta estrutura:
+
+```text
+projects/<slug>/
+├── PROJECT.md
+├── CONTEXT.md
+├── AGENTS.md
+├── knowledge/
+├── operations/
+│   ├── decisions/
+│   ├── pending/
+│   ├── risks/
+│   └── reports/
+├── artifacts/
+├── checkpoints/
+│   ├── project/
+│   └── agents/
+└── graph/
+```
+
+O projeto entra no manifesto inicialmente sem perfis nem rotas. Isto é intencional: **criar um diretório não concede acesso a nenhum agente**.
+
+### 3. Autorize agentes e configure rotas
+
+Edite o manifesto com os perfis e as rotas reais da sua instalação, depois valide:
 
 ```yaml
 version: 1
@@ -49,30 +123,68 @@ projects:
         profile: pedro
 ```
 
+```bash
+python "$HERMES_HOME/plugins/hermes-multi-projects/scripts/project_os.py" validate \
+  --workspace /root/hermes-workspace \
+  --manifest /root/hermes-workspace/projects.yaml
+```
+
+Uma rota é válida somente se seu `profile` também estiver em `profiles`. Slugs e rotas duplicados são rejeitados.
+
+### 4. Reinicie e valide no canal
+
+Após reiniciar o gateway, uma mensagem no grupo/tópico roteado recebe automaticamente o contexto correto:
+
+```text
+plataforma + chat_id + thread_id + perfil → projeto
+```
+
 ## Comandos
 
 ```text
-/project                     # mostra o contexto atual
-/project use pixel-x         # seleciona projeto fora de canal
-/project use company          # volta ao escopo organizacional
-/projects                    # lista projetos disponíveis ao perfil
+/project                                    mostra contexto atual
+/projects                                   lista projetos autorizados ao perfil
+/project init                               cria manifesto global vazio (admin)
+/project create <slug> | <nome>             cria diretório e cadastra projeto (admin)
+/project use <slug>                         seleciona projeto fora de canal roteado
+/project use company                        volta ao escopo organizacional
 ```
 
-No Telegram, comandos com hífen aparecem com underscore no menu quando aplicável. A seleção por rota tem precedência e não pode ser sobrescrita manualmente.
+Em canal roteado, a rota é a autoridade: `/project use`, `/project init` e `/project create` ficam bloqueados.
 
-## Estrutura de projeto
+## Operação fora do Telegram
+
+Em CLI, TUI, Dashboard e outras superfícies sem rota de canal, selecione o contexto antes do trabalho:
 
 ```text
-projects/<slug>/
-├── PROJECT.md
-├── CONTEXT.md
-├── AGENTS.md
-├── knowledge/
-├── operations/
-├── artifacts/
-└── checkpoints/
+/project use pixel-x
 ```
 
-## Segurança
+Depois confira:
 
-O plugin fornece isolamento de contexto e bloqueio de rota. Ele não cria um sandbox de filesystem: ferramentas externas ainda devem respeitar as políticas Hermes e o contexto injetado. Não trate esta V1 como controle de acesso de SO.
+```text
+/project
+```
+
+Para sair do projeto:
+
+```text
+/project use company
+```
+
+## Segurança e limites
+
+- O plugin oferece isolamento de contexto e validação de rotas; não é sandbox de sistema operacional.
+- Ele não cria, copia nem gere credenciais.
+- Contexto de projeto não deve ser promovido à memória global do agente sem decisão explícita.
+- Fontes externas e informações temporais precisam ser revalidadas.
+- `fail_closed_gateway: true` impede que canais sem rota recebam operações de projeto.
+
+## Desenvolvimento
+
+```bash
+python -m unittest discover -v
+python -m py_compile __init__.py scripts/project_os.py scripts/install.py
+```
+
+O GitHub Actions executa os mesmos testes.

@@ -39,6 +39,61 @@ def _load_manifest() -> dict[str, Any]:
     return data
 
 
+def _write_manifest(data: dict[str, Any]) -> None:
+    path = _manifest_path(); path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    temp.replace(path)
+
+
+def _admin(profile: str) -> bool:
+    allowed = [str(p).lower() for p in _cfg().get("admin_profiles", ["default"])]
+    return profile.lower() in allowed
+
+
+def _project_root(slug: str) -> Path:
+    if not _SLUG.fullmatch(slug):
+        raise ValueError("slug deve usar lowercase, números e hífens.")
+    root = Path(str(_cfg().get("workspace_root") or ".")).expanduser().resolve()
+    return root / "projects" / slug
+
+
+def _project_init(profile: str) -> str:
+    if not _admin(profile): return "Perfil não autorizado a inicializar o Project OS."
+    path = _manifest_path()
+    if path.exists():
+        return f"Project OS já está inicializado: `{path}`."
+    _write_manifest({"version": 1, "projects": []})
+    return f"Project OS inicializada em `{path.parent}`. Use `/project create <slug> | <nome>` para criar o primeiro projeto."
+
+
+def _project_create(raw: str, profile: str) -> str:
+    if not _admin(profile): return "Perfil não autorizado a criar projetos."
+    if not _manifest_path().is_file(): return "Project OS não inicializada. Use `/project init` primeiro."
+    parts = [p.strip() for p in raw.split("|", 1)]
+    slug = parts[0].lower()
+    if not _SLUG.fullmatch(slug): return "Uso: `/project create <slug> | <nome>`. O slug usa lowercase, números e hífens."
+    name = parts[1] if len(parts) == 2 and parts[1] else slug.replace("-", " ").title()
+    data = _load_manifest()
+    if _project(slug) is not None: return f"Projeto `{slug}` já está cadastrado."
+    dest = _project_root(slug)
+    if dest.exists(): return f"Diretório do projeto já existe: `{dest}`."
+    templates = Path(__file__).resolve().parent / "templates"
+    try:
+        for item in ("knowledge", "operations/decisions", "operations/pending", "operations/risks", "operations/reports", "artifacts", "checkpoints/project", "checkpoints/agents", "graph"):
+            (dest / item).mkdir(parents=True, exist_ok=True)
+        for filename in ("PROJECT.md", "CONTEXT.md", "AGENTS.md"):
+            text = (templates / filename).read_text(encoding="utf-8").replace("{{PROJECT_NAME}}", name).replace("{{PROJECT_SLUG}}", slug)
+            (dest / filename).write_text(text, encoding="utf-8")
+        data["projects"].append({"slug": slug, "name": name, "enabled": True, "profiles": [], "routes": []})
+        _write_manifest(data)
+    except Exception as exc:
+        if dest.exists():
+            import shutil; shutil.rmtree(dest)
+        return f"Falha ao criar projeto: {exc}"
+    return f"Projeto `{slug}` criado e cadastrado. Próximo passo: defina `profiles` e `routes` em `{_manifest_path()}`; depois rode `project_os.py validate`."
+
+
 def _projects() -> list[dict[str, Any]]:
     return [p for p in _load_manifest().get("projects", []) if isinstance(p, dict) and p.get("enabled", True) and _SLUG.fullmatch(str(p.get("slug", "")))]
 
@@ -149,7 +204,11 @@ def _pre_gateway_dispatch(event: Any, **_: Any) -> dict[str, str] | None:
             return {"action":"rewrite", "text":"Projetos disponíveis:\n" + ("\n".join(names) or "Nenhum.") + "\n\nUse `/project use <slug>`."}
         if not raw: return {"action":"rewrite", "text":_context(routed[0] if routed else _selected(profile), profile, "rota" if routed else "manual")}
         parts = raw.split(maxsplit=1)
-        if parts[0].lower() != "use" or len(parts) != 2: return {"action":"rewrite", "text":"Uso: `/project`, `/projects` ou `/project use <slug|company>`."}
+        action = parts[0].lower()
+        if routed and action in {"init", "create"}: return {"action":"rewrite", "text":"Este canal é roteado para projeto; inicialização e criação só podem ser feitas fora de canais de projeto."}
+        if action == "init" and len(parts) == 1: return {"action":"rewrite", "text":_project_init(profile)}
+        if action == "create" and len(parts) == 2: return {"action":"rewrite", "text":_project_create(parts[1], profile)}
+        if action != "use" or len(parts) != 2: return {"action":"rewrite", "text":"Uso: `/project`, `/projects`, `/project init`, `/project create <slug> | <nome>` ou `/project use <slug|company>`."}
         if routed: return {"action":"rewrite", "text":f"Este canal é roteado para `{routed[0]['slug']}`; a seleção manual está bloqueada."}
         slug = parts[1].strip().lower()
         if slug == "company": _set_selection(profile, "company"); return {"action":"rewrite", "text":"Contexto selecionado: company."}
