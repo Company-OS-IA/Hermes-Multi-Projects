@@ -1,7 +1,15 @@
 name: hermes-multi-projects
-version: 0.1.0
+version: 0.2.0
 description: Project context routing and isolation for Hermes sessions.
 author: Mosko Digital
 hooks:
   - pre_gateway_dispatch
   - pre_llm_call
+provides_hooks:
+  - pre_gateway_dispatch
+  - pre_llm_call
+provides_tools:
+  - project_context
+provides_commands:
+  - project
+  - projects

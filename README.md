@@ -17,7 +17,7 @@ Plugin independente para operar os mesmos perfis Hermes em múltiplos projetos, 
 
 - Hermes Agent com suporte a plugins;
 - Python 3.10+ e PyYAML (dependência padrão do Hermes);
-- um workspace gravável, por exemplo `/srv/company-os` ou `/root/hermes-workspace`.
+- um workspace gravável, por exemplo `/srv/company-os` ou `~/.hermes`.
 
 ## Instalação
 
@@ -43,18 +43,24 @@ hermes plugins update hermes-multi-projects
 
 O plugin é instalado em `$HERMES_HOME/plugins/hermes-multi-projects/`.
 
+## Configuração
+
 ```yaml
 plugins:
   enabled:
     - hermes-multi-projects
   entries:
     hermes-multi-projects:
-      workspace_root: /root/hermes-workspace
-      manifest: /root/hermes-workspace/projects.yaml
+      workspace_root: ~/.hermes
+      manifest: ~/.hermes/projects.yaml
       admin_profiles: [default]
 ```
 
-`admin_profiles` controla quem pode executar `/project init` e `/project create`. Aceita um perfil único (`default`) ou uma lista (`[default, coo]`); por padrão, somente `default` (agente principal) pode provisionar projetos.
+| Campo | Descrição | Default |
+|-------|-----------|---------|
+| `workspace_root` | Raiz do workspace de projetos | `$HERMES_HOME` ou `~/.hermes` |
+| `manifest` | Caminho do manifesto YAML | `<workspace_root>/projects.yaml` |
+| `admin_profiles` | Perfis que podem criar/editar projetos | `[default]` |
 
 Reinicie o gateway após habilitar ou atualizar o plugin.
 
@@ -71,7 +77,7 @@ No chat do agente principal, fora de um canal já roteado para projeto:
 Isso cria apenas o manifesto vazio:
 
 ```text
-/root/hermes-workspace/projects.yaml
+~/.hermes/projects.yaml
 ```
 
 Não cria nenhum projeto ainda.
@@ -121,13 +127,7 @@ O projeto entra no manifesto inicialmente sem perfis nem rotas. Isto é intencio
 /project add route pixel-x-app telegram -1000000000001 - david
 ```
 
-```bash
-python "$HERMES_HOME/plugins/hermes-multi-projects/scripts/project_os.py" validate \
-  --workspace /root/hermes-workspace \
-  --manifest /root/hermes-workspace/projects.yaml
-```
-
-Uma rota é válida somente se seu `profile` também estiver em `profiles`. `/project add route` exige essa autorização, rejeita rotas duplicadas e usa `-` quando o canal não possui `thread_id`. Slugs e rotas duplicados são rejeitados.
+Uma rota é válida somente se seu `profile` também estiver em `profiles`. `/project add route` exige essa autorização, rejeita rotas duplicadas e usa `-` quando o canal não possui `thread_id`.
 
 ### 4. Reinicie e valide no canal
 
@@ -144,6 +144,8 @@ plataforma + chat_id + thread_id + perfil → projeto
 /projects                                   lista projetos autorizados ao perfil
 /project init                               cria manifesto global vazio (admin)
 /project create <slug> | <nome>             cria diretório e cadastra projeto (admin)
+/project delete <slug>                      deleta projeto e seu diretório (admin)
+/project rename <slug> <novo-nome>          renomeia o projeto (admin)
 /project add profile <slug> <perfil>         autoriza perfil no projeto (admin)
 /project add route <slug> <plataforma> <chat_id> <thread_id|-> <perfil>
                                              cadastra rota estável (admin)
@@ -151,7 +153,40 @@ plataforma + chat_id + thread_id + perfil → projeto
 /project use company                        volta ao escopo organizacional
 ```
 
-Em canal roteado, a rota é a autoridade: `/project use`, `/project init` e `/project create` ficam bloqueados.
+Em canal roteado, a rota é a autoridade: `/project use`, `/project init`, `/project create`, `/project delete` e `/project rename` ficam bloqueados.
+
+## Manifesto de exemplo
+
+```yaml
+version: 1
+projects:
+  - slug: pixel-x
+    name: Pixel X
+    enabled: true
+    profiles:
+      - pedro
+      - david
+    routes:
+      - platform: telegram
+        chat_id: "-1000000000001"
+        thread_id: "7"
+        profile: pedro
+      - platform: telegram
+        chat_id: "-1000000000001"
+        thread_id: ""
+        profile: david
+
+  - slug: arquitetando-viagens
+    name: Arquitetando Viagens
+    enabled: true
+    profiles:
+      - maria
+    routes:
+      - platform: telegram
+        chat_id: "-1000000000002"
+        thread_id: ""
+        profile: maria
+```
 
 ## Operação fora do Telegram
 
@@ -177,9 +212,22 @@ Para sair do projeto:
 
 - O plugin oferece isolamento de contexto e validação de rotas; não é sandbox de sistema operacional.
 - Ele não cria, copia nem gere credenciais.
-- Contexto de projeto não deve ser promovido à memória global do agente sem decisão explícita.
+- Contexto de projeto não deve ser promovido à memória do agente sem decisão explícita.
 - Canais sem rota operam somente no escopo `company`; dados de projeto só entram por rota válida ou seleção manual autorizada.
-- Fontes externas e informações temporais precisam ser revalidadas.
+- Fontes externas e informa��ões temporais precisam ser revalidadas.
+
+## Troubleshooting
+
+| Sintoma | Causa | Solução |
+|---------|-------|---------|
+| `Project OS não inicializada` | Manifesto não existe | Execute `/project init` |
+| `Projeto não existe ou não está habilitado` | Slug errado ou perfil não autorizado | Verifique com `/projects` e `/project add profile` |
+| `Este canal é roteado para projeto` | Tentou executar comando admin em canal roteado | Execute fora do canal roteado |
+| `Perfil não autorizado` | Seu perfil não está em `admin_profiles` | Adicione seu perfil em `admin_profiles` no config |
+| `CONTEXTO BLOQUEADO` | Faltam arquivos no projeto | Verifique `PROJECT.md`, `CONTEXT.md`, `AGENTS.md` |
+| `Rota já existe` | Tentou cadastrar rota duplicada | Use `/project add route` com parâmetros diferentes |
+| Plugin não aparece | Não está em `plugins.enabled` | Adicione `hermes-multi-projects` em `plugins.enabled` |
+| `workspace_root` aponta para lugar errado | Config não definido | Defina `workspace_root` explicitamente no config |
 
 ## Desenvolvimento
 
