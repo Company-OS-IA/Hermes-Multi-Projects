@@ -1,7 +1,6 @@
 name: hermes-multi-projects
 version: 1.0.0
 description: Project context routing and isolation for Hermes sessions.
-manifest_version: 2
 api_version: 1
 license: MIT
 tags: [projects, context, gateway, isolation]
