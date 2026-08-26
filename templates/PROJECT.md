@@ -4,7 +4,7 @@
 - **Status:** active
 - **Owner:**
 - **Objetivo:**
-- **Agentes habilitados:**
+- **Perfis autorizados:**
 - **Última revisão:**
 
 ## Fonte de verdade

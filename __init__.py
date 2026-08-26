@@ -1,4 +1,4 @@
-"""Hermes Multi-Projects — portable project-context plugin."""
+"""Hermes Multi-Projects — project context routing and isolation."""
 from __future__ import annotations
 
 import contextvars
@@ -16,8 +16,10 @@ _PLUGIN_KEY = "hermes-multi-projects"
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 _PROFILE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 
-_CMD_PROFILE: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "multi_projects_command_profile", default="default"
+_PLUGIN_CTX: Any | None = None
+
+_CMD_PROFILE: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "multi_projects_command_profile", default=None
 )
 _CMD_ROUTE: contextvars.ContextVar[
     tuple[dict[str, Any], dict[str, Any]] | None
@@ -28,7 +30,7 @@ _GATEWAY_PLATFORMS = {
     "teams", "google_chat", "email", "matrix", "imessage",
 }
 
-_REQUIRED_FILES = ("PROJECT.md", "CONTEXT.md", "AGENTS.md")
+_REQUIRED_FILES = ("PROJECT.md", "CONTEXT.md")
 
 _DIR_STRUCTURE = (
     "knowledge",
@@ -38,7 +40,6 @@ _DIR_STRUCTURE = (
     "operations/reports",
     "artifacts",
     "checkpoints/project",
-    "checkpoints/agents",
     "graph",
 )
 
@@ -48,13 +49,17 @@ _DIR_STRUCTURE = (
 # ---------------------------------------------------------------------------
 
 def _cfg() -> dict[str, Any]:
-    try:
-        from hermes_cli.config import load_config
-        root = load_config() or {}
-        entries = (root.get("plugins") or {}).get("entries") or {}
-        return dict(entries.get(_PLUGIN_KEY) or {})
-    except Exception:
+    """Read this plugin's settings through the public Hermes API."""
+    if _PLUGIN_CTX is None:
         return {}
+    return {
+        key: _PLUGIN_CTX.get_config(key, default)
+        for key, default in (
+            ("workspace_root", ""),
+            ("manifest", ""),
+            ("admin_profiles", ["default"]),
+        )
+    }
 
 
 def _workspace_root() -> Path:
@@ -71,14 +76,18 @@ def _manifest_path() -> Path:
     ).expanduser().resolve()
 
 
-def _state_path() -> Path:
+def _legacy_state_path() -> Path:
     return _workspace_root() / ".hermes-project-context.json"
 
 
 def _project_root(slug: str) -> Path:
     if not _SLUG.fullmatch(slug):
         raise ValueError("Slug must be lowercase alphanumeric with hyphens.")
-    return _workspace_root() / "projects" / slug
+    projects_root = (_workspace_root() / "projects").resolve()
+    path = (projects_root / slug).resolve()
+    if not path.is_relative_to(projects_root):
+        raise ValueError("Project path escapes the configured projects root.")
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -110,8 +119,9 @@ def _write_manifest(data: dict[str, Any]) -> None:
 # State (per-profile manual selection)
 # ---------------------------------------------------------------------------
 
-def _state() -> dict[str, str]:
-    path = _state_path()
+def _legacy_state() -> dict[str, str]:
+    """Read v0.2 selections for one-time migration to ``ctx.state``."""
+    path = _legacy_state_path()
     if not path.is_file():
         return {}
     try:
@@ -122,9 +132,14 @@ def _state() -> dict[str, str]:
 
 
 def _set_selection(profile: str, slug: str) -> None:
-    path = _state_path()
+    if _PLUGIN_CTX is not None:
+        _PLUGIN_CTX.state.set(f"selection:{profile}", slug)
+        return
+
+    # Test/development fallback when the module is used outside Hermes.
+    path = _legacy_state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    state = _state()
+    state = _legacy_state()
     state[profile] = slug
     temp = path.with_suffix(".tmp")
     temp.write_text(
@@ -135,8 +150,22 @@ def _set_selection(profile: str, slug: str) -> None:
 
 
 def _selected(profile: str) -> dict[str, Any] | None:
-    slug = _state().get(profile, "company")
-    return None if slug == "company" else _project(slug)
+    slug: str | None = None
+    if _PLUGIN_CTX is not None:
+        slug = _PLUGIN_CTX.state.get(f"selection:{profile}")
+        if slug is None:
+            slug = _legacy_state().get(profile)
+            if slug:
+                _PLUGIN_CTX.state.set(f"selection:{profile}", slug)
+    else:
+        slug = _legacy_state().get(profile)
+
+    if not slug or slug == "company":
+        return None
+    project = _project(slug)
+    if project is None:
+        _set_selection(profile, "company")
+    return project
 
 
 # ---------------------------------------------------------------------------
@@ -161,13 +190,16 @@ def _project(slug: str) -> dict[str, Any] | None:
 
 
 def _allowed(project: dict[str, Any], profile: str) -> bool:
-    profiles = [str(p).lower() for p in project.get("profiles", []) or []]
-    return not profiles or profile in profiles
+    raw = project.get("profiles", [])
+    if not isinstance(raw, list):
+        return False
+    profiles = [str(p).lower() for p in raw]
+    return profile.lower() in profiles
 
 
 def _admin(profile: str) -> bool:
     raw = _cfg().get("admin_profiles", ["default"])
-    values = [raw] if isinstance(raw, str) else raw
+    values = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else []
     allowed = [str(p).lower() for p in values if str(p).strip()]
     return profile.lower() in allowed
 
@@ -222,6 +254,8 @@ def _route(
 
 
 def _active_profile() -> str:
+    if _PLUGIN_CTX is not None:
+        return str(_PLUGIN_CTX.profile_name or "default").lower()
     hermes_home = os.environ.get("HERMES_HOME", "")
     env_profile = os.environ.get("HERMES_PROFILE")
     if env_profile:
@@ -269,7 +303,7 @@ def _context(
         f"Perfil: {profile}\n"
         f"Origem: {source}\n"
         f"Raiz canônica: {path}\n\n"
-        f"Antes de trabalho material, leia: PROJECT.md, CONTEXT.md e AGENTS.md "
+        f"Antes de trabalho material, leia PROJECT.md e CONTEXT.md "
         f"na raiz do projeto. Use somente este namespace para conhecimento, "
         f"decisões, artefatos e checkpoints. Não leia, cite ou grave dados "
         f"de outro projeto. Dados externos/temporais exigem revalidação."
@@ -356,9 +390,10 @@ def _project_delete(raw: str, profile: str) -> str:
     if not _admin(profile):
         return "Perfil não autorizado a deletar projetos. / Not authorized to delete projects."
 
-    slug = raw.strip().lower()
-    if not _SLUG.fullmatch(slug):
-        return "Uso: `/project delete <slug>`."
+    parts = raw.split()
+    slug = parts[0].lower() if parts else ""
+    if len(parts) != 2 or parts[1] != "--confirm" or not _SLUG.fullmatch(slug):
+        return "Uso: `/project delete <slug> --confirm`. Esta ação remove o diretório do projeto."
 
     data = _load_manifest()
     project = next(
@@ -381,16 +416,8 @@ def _project_delete(raw: str, profile: str) -> str:
     if dest.exists():
         shutil.rmtree(dest)
 
-    # Clear selection for profiles that had this project selected
-    state = _state()
-    for prof, selected_slug in list(state.items()):
-        if selected_slug == slug:
-            state[prof] = "company"
-    path = _state_path()
-    path.write_text(
-        json.dumps(state, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    if _selected(profile) is None:
+        _set_selection(profile, "company")
 
     return f"Projeto `{slug}` deletado. / Project deleted."
 
@@ -419,15 +446,6 @@ def _project_rename(raw: str, profile: str) -> str:
     old_name = project.get("name", slug)
     project["name"] = new_name
     _write_manifest(data)
-
-    # Update template files if they exist
-    dest = _project_root(slug)
-    for filename in _REQUIRED_FILES:
-        fpath = dest / filename
-        if fpath.is_file():
-            text = fpath.read_text(encoding="utf-8")
-            text = text.replace(old_name, new_name)
-            fpath.write_text(text, encoding="utf-8")
 
     return f"Projeto `{slug}` renomeado de `{old_name}` para `{new_name}`. / Renamed."
 
@@ -587,14 +605,17 @@ def _pre_gateway_dispatch(event: Any, **_: Any) -> dict[str, str] | None:
 # ---------------------------------------------------------------------------
 
 def project_context(_: dict[str, Any], **kwargs: Any) -> str:
-    profile = str(kwargs.get("profile") or "default").lower()
-    selected = _selected(profile)
-    return json.dumps({
-        "success": True,
-        "profile": profile,
-        "project": (selected or {}).get("slug", "company"),
-        "context": _context(selected, profile, "tool"),
-    })
+    try:
+        profile = _active_profile()
+        selected = _selected(profile)
+        return json.dumps({
+            "success": True,
+            "profile": profile,
+            "project": (selected or {}).get("slug", "company"),
+            "context": _context(selected, profile, "tool"),
+        })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
 
 
 # ---------------------------------------------------------------------------
@@ -712,6 +733,9 @@ def _cli_projects(_: str) -> str:
 # ---------------------------------------------------------------------------
 
 def register(ctx: Any) -> None:
+    global _PLUGIN_CTX
+    _PLUGIN_CTX = ctx
+
     ctx.register_hook("pre_gateway_dispatch", _pre_gateway_dispatch)
     ctx.register_hook("pre_llm_call", _pre_llm_call)
     ctx.register_command(
@@ -722,13 +746,21 @@ def register(ctx: Any) -> None:
     )
     ctx.register_tool(
         name="project_context",
-        toolset="file",
+        toolset=_PLUGIN_KEY,
         schema={
             "name": "project_context",
-            "description": "Return active company or project context for this profile.",
+            "description": (
+                "Return the active project scope and canonical root for the current "
+                "Hermes profile. Use before project-scoped work when the active "
+                "context is uncertain."
+            ),
             "parameters": {"type": "object", "properties": {}},
         },
         handler=project_context,
         description="Read active project context.",
         emoji="🗂️",
+    )
+    ctx.register_skill(
+        "project-context",
+        Path(__file__).parent / "skills" / "project-context" / "SKILL.md",
     )

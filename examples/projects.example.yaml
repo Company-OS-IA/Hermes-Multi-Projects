@@ -1,11 +1,11 @@
 version: 1
 projects:
-  - slug: pixel-x
-    name: Pixel X
+  - slug: project-alpha
+    name: Project Alpha
     enabled: true
-    profiles: [david, maya, pedro]
+    profiles: [operator]
     routes:
       - platform: telegram
         chat_id: "REPLACE_WITH_CHAT_ID"
         thread_id: "REPLACE_WITH_THREAD_ID"
-        profile: pedro
+        profile: operator

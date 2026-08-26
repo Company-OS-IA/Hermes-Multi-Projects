@@ -1,49 +1,56 @@
 # Hermes Multi-Projects
 
-Plugin independente para operar os mesmos perfis Hermes em múltiplos projetos, sem duplicar agentes nem modificar o core.
+A standalone Hermes plugin for routing sessions into isolated project contexts without modifying Hermes core.
 
-## O que resolve
+## Features
 
-- mapeia origem de canal para `profile + project_slug`;
-- injeta contexto de projeto em mensagens de canais roteados e em superfícies locais com projeto selecionado;
-- usa `projects/<slug>/AGENTS.md`, `PROJECT.md` e `CONTEXT.md` como fontes canônicas;
-- canais sem rota ficam em escopo `company`, sem acesso implícito a dados de projeto;
-- provisiona e cadastra projetos pelo comando `/project create`;
-- expõe a tool `project_context` para o agente consultar o contexto ativo.
+- maps a gateway origin to a Hermes profile and project;
+- injects deterministic project context into routed messages;
+- supports explicit project selection in CLI and other non-routed surfaces;
+- keeps unrouted channels in the restricted `company` scope;
+- provisions a consistent project directory structure;
+- exposes `project_context` for checking the active scope;
+- bundles the read-only `hermes-multi-projects:project-context` skill.
 
-> **Limite V1:** o Hermes atual não passa `session_id` ao handler de slash command de plugin. Em CLI/TUI, a seleção manual é persistida por **perfil**, não por sessão individual. Canais roteados têm escopo determinístico por mensagem.
+Project isolation is enforced by profile allowlists and canonical project roots. It is a context boundary, not an operating-system sandbox.
 
-## Pré-requisitos
+## Requirements
 
-- Hermes Agent com suporte a plugins;
-- Python 3.10+ e PyYAML (dependência padrão do Hermes);
-- um workspace gravável, por exemplo `/srv/company-os` ou `~/.hermes`.
+- Hermes Agent with native plugin support;
+- Python 3.11+;
+- PyYAML 6.x;
+- a writable workspace, such as `~/.hermes`.
 
-## Instalação
+## Install
 
-Instale pelo gerenciador nativo do Hermes, sem tocar no core:
-
-Para repositório privado, use a URL SSH já autorizada no host:
-
-```bash
-hermes plugins install git@github.com:Company-OS-IA/Hermes-Multi-Projects.git --enable
-```
-
-Para repositório público, o shorthand também funciona:
+From a public Git repository:
 
 ```bash
-hermes plugins install Company-OS-IA/Hermes-Multi-Projects --enable
+hermes plugins install YOUR_GITHUB_ORG/hermes-multi-projects --enable
 ```
 
-Para atualizar depois:
+For a private repository, use an authenticated Git URL:
+
+```bash
+hermes plugins install git@github.com:YOUR_GITHUB_ORG/hermes-multi-projects.git --enable
+```
+
+Then validate and restart Hermes:
+
+```bash
+hermes plugins doctor hermes-multi-projects --ci
+hermes plugins list
+```
+
+Update an installed copy with:
 
 ```bash
 hermes plugins update hermes-multi-projects
 ```
 
-O plugin é instalado em `$HERMES_HOME/plugins/hermes-multi-projects/`.
+## Configure
 
-## Configuração
+Plugin settings belong under the native `settings` namespace:
 
 ```yaml
 plugins:
@@ -51,57 +58,40 @@ plugins:
     - hermes-multi-projects
   entries:
     hermes-multi-projects:
-      workspace_root: ~/.hermes
-      manifest: ~/.hermes/projects.yaml
-      admin_profiles: [default]
+      settings:
+        workspace_root: ~/.hermes
+        manifest: ~/.hermes/projects.yaml
+        admin_profiles: [default]
 ```
 
-| Campo | Descrição | Default |
-|-------|-----------|---------|
-| `workspace_root` | Raiz do workspace de projetos | `$HERMES_HOME` ou `~/.hermes` |
-| `manifest` | Caminho do manifesto YAML | `<workspace_root>/projects.yaml` |
-| `admin_profiles` | Perfis que podem criar/editar projetos | `[default]` |
+| Setting | Purpose | Default |
+|---|---|---|
+| `workspace_root` | Root containing `projects/` and the default manifest | `$HERMES_HOME` |
+| `manifest` | Optional projects manifest path | `<workspace_root>/projects.yaml` |
+| `admin_profiles` | Profiles allowed to manage projects and routes | `[default]` |
 
-Reinicie o gateway após habilitar ou atualizar o plugin.
+Restart the gateway after enabling, updating, or changing plugin settings.
 
-## Começo rápido
+## Quick start
 
-### 1. Inicialize o Project OS uma vez
-
-No chat do agente principal, fora de um canal já roteado para projeto:
+Initialize the manifest from an authorized profile:
 
 ```text
 /project init
 ```
 
-Isso cria apenas o manifesto vazio:
+Create a project:
 
 ```text
-~/.hermes/projects.yaml
+/project create project-alpha | Project Alpha
 ```
 
-Não cria nenhum projeto ainda.
-
-### 2. Crie o primeiro projeto
+This creates:
 
 ```text
-/project create pixel-x | Pixel X
-/project create Pixel X
-```
-
-Ou, se o nome for omitido, o slug vira um título legível:
-
-```text
-/project create arquitetando-viagens
-```
-
-O comando cria e cadastra, de forma única, esta estrutura:
-
-```text
-projects/<slug>/
+projects/project-alpha/
 ├── PROJECT.md
 ├── CONTEXT.md
-├── AGENTS.md
 ├── knowledge/
 ├── operations/
 │   ├── decisions/
@@ -110,130 +100,101 @@ projects/<slug>/
 │   └── reports/
 ├── artifacts/
 ├── checkpoints/
-│   ├── project/
-│   └── agents/
+│   └── project/
 └── graph/
 ```
 
-O projeto entra no manifesto inicialmente sem perfis nem rotas. Isto é intencional: **criar um diretório não concede acesso a nenhum agente**.
-
-### 3. Autorize agentes e configure rotas
+New projects have an empty profile allowlist and are inaccessible until an administrator grants access:
 
 ```text
-/project add profile pixel-x-app pedro
-/project add profile pixel-x-app david
-
-/project add route pixel-x-app telegram -1000000000001 7 pedro
-/project add route pixel-x-app telegram -1000000000001 - david
+/project add profile project-alpha operator
+/project add route project-alpha telegram REPLACE_WITH_CHAT_ID REPLACE_WITH_THREAD_ID operator
 ```
 
-Uma rota é válida somente se seu `profile` também estiver em `profiles`. `/project add route` exige essa autorização, rejeita rotas duplicadas e usa `-` quando o canal não possui `thread_id`.
+Use `-` when the channel has no thread identifier.
 
-### 4. Reinicie e valide no canal
-
-Após reiniciar o gateway, uma mensagem no grupo/tópico roteado recebe automaticamente o contexto correto:
+## Commands
 
 ```text
-plataforma + chat_id + thread_id + perfil → projeto
+/project                                      show the active context
+/projects                                     list projects allowed for this profile
+/project init                                 create the empty manifest (admin)
+/project create <slug> | <name>               create and register a project (admin)
+/project delete <slug> --confirm              remove a project and its directory (admin)
+/project rename <slug> <new-name>             rename a project in the manifest (admin)
+/project add profile <slug> <profile>         grant project access (admin)
+/project add route <slug> <platform> <chat_id> <thread_id|-> <profile>
+                                               add a deterministic route (admin)
+/project use <slug>                           select a project outside routed channels
+/project use company                          return to organization scope
 ```
 
-## Comandos
+Routed channels are authoritative: manual selection and administrative mutations are blocked there.
 
-```text
-/project                                    mostra contexto atual
-/projects                                   lista projetos autorizados ao perfil
-/project init                               cria manifesto global vazio (admin)
-/project create <slug> | <nome>             cria diretório e cadastra projeto (admin)
-/project delete <slug>                      deleta projeto e seu diretório (admin)
-/project rename <slug> <novo-nome>          renomeia o projeto (admin)
-/project add profile <slug> <perfil>         autoriza perfil no projeto (admin)
-/project add route <slug> <plataforma> <chat_id> <thread_id|-> <perfil>
-                                             cadastra rota estável (admin)
-/project use <slug>                         seleciona projeto fora de canal roteado
-/project use company                        volta ao escopo organizacional
-```
-
-Em canal roteado, a rota é a autoridade: `/project use`, `/project init`, `/project create`, `/project delete` e `/project rename` ficam bloqueados.
-
-## Manifesto de exemplo
+## Manifest example
 
 ```yaml
 version: 1
 projects:
-  - slug: pixel-x
-    name: Pixel X
+  - slug: project-alpha
+    name: Project Alpha
     enabled: true
     profiles:
-      - pedro
-      - david
+      - operator
     routes:
       - platform: telegram
-        chat_id: "-1000000000001"
-        thread_id: "7"
-        profile: pedro
-      - platform: telegram
-        chat_id: "-1000000000001"
-        thread_id: ""
-        profile: david
-
-  - slug: arquitetando-viagens
-    name: Arquitetando Viagens
-    enabled: true
-    profiles:
-      - maria
-    routes:
-      - platform: telegram
-        chat_id: "-1000000000002"
-        thread_id: ""
-        profile: maria
+        chat_id: "REPLACE_WITH_CHAT_ID"
+        thread_id: "REPLACE_WITH_THREAD_ID"
+        profile: operator
 ```
 
-## Operação fora do Telegram
+## Non-routed sessions
 
-Em CLI, TUI, Dashboard e outras superfícies sem rota de canal, selecione o contexto antes do trabalho:
-
-```text
-/project use pixel-x
-```
-
-Depois confira:
+In CLI, TUI, dashboard, and other non-routed surfaces:
 
 ```text
+/project use project-alpha
 /project
 ```
 
-Para sair do projeto:
+Return to organization scope with:
 
 ```text
 /project use company
 ```
 
-## Segurança e limites
+Manual selections are stored with Hermes' profile-scoped plugin state. Selections created by version 0.2 are migrated on first access.
 
-- O plugin oferece isolamento de contexto e validação de rotas; não é sandbox de sistema operacional.
-- Ele não cria, copia nem gere credenciais.
-- Contexto de projeto não deve ser promovido à memória do agente sem decisão explícita.
-- Canais sem rota operam somente no escopo `company`; dados de projeto só entram por rota válida ou seleção manual autorizada.
-- Fontes externas e informa��ões temporais precisam ser revalidadas.
+## Security boundaries
+
+- An empty `profiles` list denies access to everyone.
+- A route is valid only when its profile is explicitly allowed by the project.
+- Slugs are validated before filesystem paths are constructed.
+- Runtime state uses Hermes' namespaced, atomic `ctx.state` storage.
+- Settings are read only through the plugin-scoped `ctx.get_config()` API.
+- Project facts must not enter global memory without an explicit promotion decision.
+- External and time-sensitive facts require revalidation.
+- The plugin does not create, copy, or manage credentials.
 
 ## Troubleshooting
 
-| Sintoma | Causa | Solução |
-|---------|-------|---------|
-| `Project OS não inicializada` | Manifesto não existe | Execute `/project init` |
-| `Projeto não existe ou não está habilitado` | Slug errado ou perfil não autorizado | Verifique com `/projects` e `/project add profile` |
-| `Este canal é roteado para projeto` | Tentou executar comando admin em canal roteado | Execute fora do canal roteado |
-| `Perfil não autorizado` | Seu perfil não está em `admin_profiles` | Adicione seu perfil em `admin_profiles` no config |
-| `CONTEXTO BLOQUEADO` | Faltam arquivos no projeto | Verifique `PROJECT.md`, `CONTEXT.md`, `AGENTS.md` |
-| `Rota já existe` | Tentou cadastrar rota duplicada | Use `/project add route` com parâmetros diferentes |
-| Plugin não aparece | Não está em `plugins.enabled` | Adicione `hermes-multi-projects` em `plugins.enabled` |
-| `workspace_root` aponta para lugar errado | Config não definido | Defina `workspace_root` explicitamente no config |
+| Symptom | Resolution |
+|---|---|
+| Plugin is not listed | Enable `hermes-multi-projects` and restart Hermes |
+| `Project OS não inicializada` | Run `/project init` from an admin profile |
+| Project is unavailable | Grant the current profile with `/project add profile` |
+| `CONTEXTO BLOQUEADO` | Restore `PROJECT.md` and `CONTEXT.md` |
+| Route already exists | Use a unique platform/chat/thread/profile tuple |
+| Settings appear ignored | Ensure values are nested under `entries.hermes-multi-projects.settings` |
 
-## Desenvolvimento
+## Development
 
 ```bash
-python -m unittest discover -v
-python -m py_compile __init__.py scripts/project_os.py scripts/install.py
+python3 -m unittest discover -v
+python3 -m py_compile __init__.py scripts/project_os.py scripts/install.py
+hermes plugins doctor . --ci
 ```
 
-O GitHub Actions executa os mesmos testes.
+## License
+
+MIT

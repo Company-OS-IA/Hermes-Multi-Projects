@@ -1,15 +1,27 @@
 name: hermes-multi-projects
-version: 0.2.0
+version: 1.0.0
 description: Project context routing and isolation for Hermes sessions.
-author: Mosko Digital
-hooks:
-  - pre_gateway_dispatch
-  - pre_llm_call
+manifest_version: 2
+api_version: 1
+license: MIT
+tags: [projects, context, gateway, isolation]
+python_dependencies:
+  - "PyYAML>=6,<7"
+config_schema:
+  workspace_root:
+    type: str
+    default: ""
+    description: Root directory containing projects and the default projects.yaml manifest.
+  manifest:
+    type: str
+    default: ""
+    description: Optional absolute path to the projects manifest.
+  admin_profiles:
+    type: list
+    default: [default]
+    description: Hermes profiles allowed to manage projects and routes.
 provides_hooks:
   - pre_gateway_dispatch
   - pre_llm_call
 provides_tools:
   - project_context
-provides_commands:
-  - project
-  - projects

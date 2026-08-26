@@ -10,8 +10,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "templates"
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
-REQUIRED = ("PROJECT.md", "CONTEXT.md", "AGENTS.md")
-DIRS = ("knowledge", "operations/decisions", "operations/pending", "operations/risks", "operations/reports", "artifacts", "checkpoints/project", "checkpoints/agents", "graph")
+REQUIRED = ("PROJECT.md", "CONTEXT.md")
+DIRS = ("knowledge", "operations/decisions", "operations/pending", "operations/risks", "operations/reports", "artifacts", "checkpoints/project", "graph")
 
 def project_path(workspace: Path, slug: str) -> Path:
     if not SLUG.fullmatch(slug): raise ValueError("slug deve usar lowercase, números e hífens.")

@@ -10,6 +10,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install pyyaml
+      - run: python -m pip install "git+https://github.com/NousResearch/hermes-agent.git@3fd70ad1c9f33b6346638944339ff9bd3c113841"
       - run: python -m unittest discover -v
       - run: python -m py_compile __init__.py scripts/project_os.py scripts/install.py
+      - run: hermes plugins doctor . --ci
