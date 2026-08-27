@@ -1,8 +1,10 @@
 name: hermes-multi-projects
 version: 1.0.0
 description: Project context routing and isolation for Hermes sessions.
+author: Company OS IA
 api_version: 1
 license: MIT
+homepage: https://github.com/Company-OS-IA/Hermes-Multi-Projects
 tags: [projects, context, gateway, isolation]
 python_dependencies:
   - "PyYAML>=6,<7"

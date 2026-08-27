@@ -26,13 +26,13 @@ Project isolation is enforced by profile allowlists and canonical project roots.
 From a public Git repository:
 
 ```bash
-hermes plugins install YOUR_GITHUB_ORG/hermes-multi-projects --enable
+hermes plugins install Company-OS-IA/Hermes-Multi-Projects --enable
 ```
 
 For a private repository, use an authenticated Git URL:
 
 ```bash
-hermes plugins install git@github.com:YOUR_GITHUB_ORG/hermes-multi-projects.git --enable
+hermes plugins install git@github.com:Company-OS-IA/Hermes-Multi-Projects.git --enable
 ```
 
 Then validate and restart Hermes:
